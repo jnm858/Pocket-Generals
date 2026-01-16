@@ -3436,38 +3436,48 @@ const HexWargame = () => {
     const deploymentProgress = deployedForCurrentPlayer.length / currentPlayerUnits.length;
 
     return (
-      <div className="w-full h-screen bg-slate-900 text-white p-4 flex">
+      <div className="w-full h-screen bg-slate-900 text-white p-2 md:p-4 flex flex-col md:flex-row">
         {/* Map Area */}
-        <div className="flex-1 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold">
-                Deployment Phase - Player {deploymentPlayer}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between mb-2 md:mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+              <h1 className="text-lg md:text-2xl font-bold">
+                Deploy - P{deploymentPlayer}
               </h1>
               {/* Deployment Counter */}
-              <div className="flex items-center gap-2 bg-slate-700 px-4 py-2 rounded">
-                <div className="w-32 h-3 bg-slate-600 rounded-full overflow-hidden">
+              <div className="flex items-center gap-2 bg-slate-700 px-2 md:px-4 py-1 md:py-2 rounded">
+                <div className="w-20 md:w-32 h-2 md:h-3 bg-slate-600 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-green-500 transition-all duration-300"
                     style={{ width: `${deploymentProgress * 100}%` }}
                   />
                 </div>
-                <span className="text-sm font-medium">
-                  {deployedForCurrentPlayer.length}/{currentPlayerUnits.length} deployed
+                <span className="text-xs md:text-sm font-medium">
+                  {deployedForCurrentPlayer.length}/{currentPlayerUnits.length}
                 </span>
               </div>
             </div>
-            <button
-              onClick={goToTitle}
-              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded"
-            >
-              <Home className="w-5 h-5" />
-              Title
-            </button>
+            <div className="flex gap-2">
+              {/* Mobile: Toggle roster button */}
+              <button
+                onClick={() => setMobileRosterOpen && setMobileRosterOpen(!mobileRosterOpen)}
+                className="md:hidden flex items-center gap-1 bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm"
+              >
+                Units ({undeployedUnits.length})
+              </button>
+              <button
+                onClick={goToTitle}
+                className="flex items-center gap-1 md:gap-2 bg-slate-700 hover:bg-slate-600 px-2 md:px-4 py-1 md:py-2 rounded text-sm"
+              >
+                <Home className="w-4 h-4 md:w-5 md:h-5" />
+                <span className="hidden md:inline">Title</span>
+              </button>
+            </div>
           </div>
 
+          {/* Map container - add bottom margin on mobile for the unit roster bar */}
           <div 
-            className="bg-slate-800 p-4 rounded-lg overflow-auto flex-1"
+            className="bg-slate-800 p-2 md:p-4 rounded-lg overflow-auto flex-1 mb-44 md:mb-0"
           >
             <svg 
               width={mapWidth * HEX_SIZE * Math.sqrt(3) + 150} 
@@ -3687,34 +3697,37 @@ const HexWargame = () => {
             </svg>
           </div>
 
-          <div className="mt-4 text-sm text-slate-400">
+          <div className="hidden md:block mt-4 text-sm text-slate-400">
             <p>Click a unit from your roster to select it, then click a hex in your deployment zone to place it. Click a deployed unit to pick it back up.</p>
           </div>
         </div>
 
-        {/* Unit Roster Panel */}
-        <div className="w-80 ml-4 flex flex-col">
-          <div className="bg-slate-800 p-4 rounded-lg flex-1 overflow-auto">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+        {/* Unit Roster Panel - sidebar on desktop, bottom bar on mobile */}
+        <div className={`
+          fixed bottom-0 left-0 right-0 md:relative md:bottom-auto md:left-auto md:right-auto
+          md:w-80 md:ml-4 flex flex-col bg-slate-900 md:bg-transparent z-40
+        `}>
+          <div className="bg-slate-800 p-3 md:p-4 rounded-t-lg md:rounded-lg flex-1 overflow-auto max-h-48 md:max-h-none">
+            <h2 className="text-lg md:text-xl font-bold mb-2 md:mb-4 flex items-center gap-2">
               <div 
-                className="w-6 h-6 rounded-full border-2 border-white"
+                className="w-5 h-5 md:w-6 md:h-6 rounded-full border-2 border-white"
                 style={{ backgroundColor: currentPlayerColor }}
               />
               Player {deploymentPlayer} Units
             </h2>
             
-            <div className="mb-4 text-sm text-slate-400">
+            <div className="mb-2 md:mb-4 text-xs md:text-sm text-slate-400">
               {deployedForCurrentPlayer.length} / {currentPlayerUnits.length} units deployed
             </div>
 
             {/* Dragging indicator */}
             {draggingUnit && (
-              <div className="bg-green-900/50 border-2 border-green-500 rounded-lg p-3 mb-4">
+              <div className="bg-green-900/50 border-2 border-green-500 rounded-lg p-2 md:p-3 mb-2 md:mb-4">
                 <p className="text-green-400 text-sm font-semibold">
                   Placing: {draggingUnit.name}
                 </p>
                 <p className="text-green-400/70 text-xs">
-                  Click a hex in your deployment zone
+                  Tap a hex in your deployment zone
                 </p>
                 <button
                   onClick={() => setDraggingUnit(null)}
@@ -3725,50 +3738,52 @@ const HexWargame = () => {
               </div>
             )}
 
-            {/* Undeployed units */}
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-400 mb-2">Available Units:</h3>
+            {/* Undeployed units - horizontal scroll on mobile */}
+            <div className="md:space-y-2">
+              <h3 className="text-xs md:text-sm font-semibold text-slate-400 mb-2">Available Units:</h3>
               {undeployedUnits.length === 0 ? (
                 <p className="text-slate-500 text-sm">All units deployed!</p>
               ) : (
-                undeployedUnits.map(unit => {
-                  const unitType = getUnitType(unit.typeId);
-                  const isSelected = draggingUnit?.id === unit.id;
-                  return (
-                    <div
-                      key={unit.id}
-                      onClick={() => setDraggingUnit({ ...unit, player: deploymentPlayer })}
-                      className={`bg-slate-700 p-3 rounded-lg cursor-pointer transition-all ${
-                        isSelected 
-                          ? 'ring-2 ring-green-500 bg-slate-600' 
-                          : 'hover:bg-slate-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div 
-                          className="w-10 h-10 rounded-full border-2 border-white flex items-center justify-center"
-                          style={{ backgroundColor: currentPlayerColor }}
-                        >
-                          <svg width="20" height="20" viewBox="0 0 20 20">
-                            {renderUnitShape(unitType?.shape || 'circle', 10, 10, 7)}
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="font-semibold">{unit.name}</p>
-                          <p className="text-xs text-slate-400">
-                            {unitType?.name} | Str: {unit.strength}
-                          </p>
+                <div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0">
+                  {undeployedUnits.map(unit => {
+                    const unitType = getUnitType(unit.typeId);
+                    const isSelected = draggingUnit?.id === unit.id;
+                    return (
+                      <div
+                        key={unit.id}
+                        onClick={() => setDraggingUnit({ ...unit, player: deploymentPlayer })}
+                        className={`bg-slate-700 p-2 md:p-3 rounded-lg cursor-pointer transition-all flex-shrink-0 w-32 md:w-auto ${
+                          isSelected 
+                            ? 'ring-2 ring-green-500 bg-slate-600' 
+                            : 'hover:bg-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 md:gap-3">
+                          <div 
+                            className="w-8 h-8 md:w-10 md:h-10 rounded-full border-2 border-white flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: currentPlayerColor }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 20 20" className="md:w-5 md:h-5">
+                              {renderUnitShape(unitType?.shape || 'circle', 10, 10, 7)}
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate">{unit.name}</p>
+                            <p className="text-xs text-slate-400 truncate">
+                              {unitType?.name}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
               )}
             </div>
 
-            {/* Deployed units list */}
+            {/* Deployed units list - hidden on mobile to save space */}
             {deployedForCurrentPlayer.length > 0 && (
-              <div className="mt-4">
+              <div className="hidden md:block mt-4">
                 <h3 className="text-sm font-semibold text-slate-400 mb-2">
                   ✓ Deployed:
                 </h3>
@@ -3807,7 +3822,7 @@ const HexWargame = () => {
           <button
             onClick={confirmDeployment}
             disabled={!areAllUnitsDeployed(deploymentPlayer)}
-            className={`mt-4 py-4 rounded-lg font-semibold text-lg flex items-center justify-center gap-2 ${
+            className={`mt-2 md:mt-4 py-3 md:py-4 rounded-lg font-semibold text-base md:text-lg flex items-center justify-center gap-2 ${
               areAllUnitsDeployed(deploymentPlayer)
                 ? 'bg-green-600 hover:bg-green-700'
                 : 'bg-slate-600 cursor-not-allowed'
@@ -3816,12 +3831,14 @@ const HexWargame = () => {
             {deploymentPlayer === 1 ? (
               <>
                 <span>✓</span>
-                Confirm & Pass to Player 2
+                <span className="hidden md:inline">Confirm & Pass to Player 2</span>
+                <span className="md:hidden">Confirm → P2</span>
               </>
             ) : (
               <>
                 <Play className="w-5 h-5" />
-                Confirm & Start Game
+                <span className="hidden md:inline">Confirm & Start Game</span>
+                <span className="md:hidden">Start Game</span>
               </>
             )}
           </button>
@@ -3849,34 +3866,35 @@ const HexWargame = () => {
   };
 
   return (
-    <div className="w-full h-screen bg-slate-900 text-white p-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold">Pocket Generals</h1>
-            <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded">
-              <Users className="w-5 h-5" />
-              <span>Player {currentPlayer}'s Turn</span>
+    <div className="w-full h-screen bg-slate-900 text-white p-2 md:p-4 flex flex-col">
+      <div className="max-w-7xl mx-auto w-full flex flex-col h-full">
+        {/* Header - collapses on mobile */}
+        <div className="mb-2 md:mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+            <h1 className="text-lg md:text-2xl font-bold">Pocket Generals</h1>
+            <div className="flex items-center gap-2 bg-slate-800 px-2 md:px-4 py-1 md:py-2 rounded text-sm md:text-base">
+              <Users className="w-4 h-4 md:w-5 md:h-5" />
+              <span>P{currentPlayer}'s Turn</span>
               <div 
-                className="w-6 h-6 rounded-full border-2 border-white ml-2"
+                className="w-4 h-4 md:w-6 md:h-6 rounded-full border-2 border-white"
                 style={{ backgroundColor: currentPlayer === 1 ? player1Color : player2Color }}
               />
             </div>
             {gameMode === 'online-multiplayer' && authenticatedPlayer && (
-              <div className={`px-3 py-1 rounded text-sm ${
+              <div className={`px-2 py-1 rounded text-xs md:text-sm ${
                 isMyTurn ? 'bg-green-600' : 'bg-amber-600'
               }`}>
-                {isMyTurn ? 'Your Turn' : 'Waiting for opponent'}
+                {isMyTurn ? 'Your Turn' : 'Waiting'}
               </div>
             )}
             {gameMode === 'local-hotseat' && (
-              <div className="px-3 py-1 rounded text-sm bg-slate-700">
-                Local Hotseat
+              <div className="px-2 py-1 rounded text-xs md:text-sm bg-slate-700">
+                Hotseat
               </div>
             )}
           </div>
           
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1 md:gap-2 items-center flex-wrap">
             {/* Zoom controls */}
             <div className="flex items-center gap-1 bg-slate-700 rounded px-2 py-1">
               <button
@@ -3886,7 +3904,7 @@ const HexWargame = () => {
               >
                 −
               </button>
-              <span className="text-xs w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
+              <span className="text-xs w-10 md:w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
               <button
                 onClick={() => setZoomLevel(prev => Math.min(2.0, prev + 0.25))}
                 className="w-6 h-6 flex items-center justify-center hover:bg-slate-600 rounded text-lg"
@@ -3899,23 +3917,23 @@ const HexWargame = () => {
               <button
                 onClick={refreshGame}
                 disabled={isLoading}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 px-4 py-2 rounded"
+                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 px-2 md:px-4 py-1 md:py-2 rounded text-sm"
               >
-                <RotateCcw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
-                {isLoading ? 'Refreshing...' : 'Refresh'}
+                <RotateCcw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                <span className="hidden md:inline">{isLoading ? 'Refreshing...' : 'Refresh'}</span>
               </button>
             )}
             <button
               onClick={goToTitle}
-              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded"
+              className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 px-2 md:px-4 py-1 md:py-2 rounded text-sm"
             >
-              <Home className="w-5 h-5" />
-              Title
+              <Home className="w-4 h-4 md:w-5 md:h-5" />
+              <span className="hidden md:inline">Title</span>
             </button>
             {(gameMode === 'local-hotseat' || isMyTurn) && (
               <button
                 onClick={endTurn}
-                className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded font-semibold"
+                className="bg-blue-600 hover:bg-blue-700 px-3 md:px-6 py-1 md:py-2 rounded font-semibold text-sm md:text-base"
               >
                 End Turn
               </button>
@@ -3924,13 +3942,13 @@ const HexWargame = () => {
         </div>
 
         {gameMode === 'online-multiplayer' && gameCode && (
-          <div className="mb-4 bg-slate-800 px-4 py-2 rounded flex items-center justify-between">
-            <div className="flex items-center gap-4 text-sm">
+          <div className="mb-2 md:mb-4 bg-slate-800 px-2 md:px-4 py-1 md:py-2 rounded flex items-center justify-between text-xs md:text-sm">
+            <div className="flex items-center gap-2 md:gap-4 flex-wrap">
               {gameName && <span className="text-slate-300">{gameName}</span>}
               <span className="text-slate-500">Game: {gameCode}</span>
               {authenticatedPlayer && (
                 <span className="text-slate-500">
-                  Playing as: Player {authenticatedPlayer}
+                  Player {authenticatedPlayer}
                 </span>
               )}
             </div>
@@ -3938,12 +3956,13 @@ const HexWargame = () => {
         )}
 
         {gameMode === 'local-hotseat' && gameName && (
-          <div className="mb-4 bg-slate-800 px-4 py-2 rounded">
+          <div className="mb-2 md:mb-4 bg-slate-800 px-2 md:px-4 py-1 md:py-2 rounded text-xs md:text-sm">
             <span className="text-slate-300">{gameName}</span>
           </div>
         )}
 
-        <div className="mb-4 bg-slate-800 p-3 rounded">
+        {/* Unit legend - hidden on mobile, shown on md+ */}
+        <div className="hidden md:block mb-4 bg-slate-800 p-3 rounded">
           <div className="flex gap-6 text-sm flex-wrap">
             {unitTypes.map((type) => (
               <div key={type.id} className="flex items-center gap-2">
@@ -3956,16 +3975,36 @@ const HexWargame = () => {
           </div>
         </div>
 
+        {/* Map container - takes remaining height */}
         <div 
           ref={scrollContainerRef}
-          className="bg-slate-800 p-4 rounded-lg overflow-auto" 
+          className="bg-slate-800 p-2 md:p-4 rounded-lg overflow-auto flex-1 touch-pan-x touch-pan-y" 
           style={{ 
-            maxHeight: 'calc(100vh - 250px)',
+            minHeight: '200px',
             cursor: isPanning ? 'grabbing' : 'grab'
           }}
           onMouseDown={handleMouseDown}
           onWheel={handleWheel}
           onContextMenu={handleContextMenu}
+          onTouchStart={(e) => {
+            if (e.touches.length === 1) {
+              setIsPanning(true);
+              setPanStart({
+                x: e.touches[0].clientX + scrollPos.x,
+                y: e.touches[0].clientY + scrollPos.y
+              });
+            }
+          }}
+          onTouchMove={(e) => {
+            if (isPanning && e.touches.length === 1 && scrollContainerRef.current) {
+              const deltaX = panStart.x - e.touches[0].clientX;
+              const deltaY = panStart.y - e.touches[0].clientY;
+              scrollContainerRef.current.scrollLeft = deltaX;
+              scrollContainerRef.current.scrollTop = deltaY;
+              setScrollPos({ x: deltaX, y: deltaY });
+            }
+          }}
+          onTouchEnd={() => setIsPanning(false)}
         >
           <svg 
             width={(mapWidth * HEX_SIZE * Math.sqrt(3) + 150) * zoomLevel} 
@@ -4494,7 +4533,8 @@ const HexWargame = () => {
           </svg>
         </div>
 
-        <div className="mt-4 text-sm text-slate-400">
+        {/* Help text - hidden on mobile */}
+        <div className="hidden md:block mt-2 md:mt-4 text-xs md:text-sm text-slate-400">
           <p>Click and drag to pan. Scroll wheel to zoom. Right-click to deselect. Click units to select, hover to see path, click to confirm.</p>
         </div>
 
