@@ -117,8 +117,37 @@ const HexWargame = () => {
   const [zoomLevel, setZoomLevel] = useState(1); // Zoom level (0.5 to 2.0)
   const scrollContainerRef = useRef(null);
 
+  // Mobile touch gesture state
+  const [touchState, setTouchState] = useState({
+    lastTap: 0,           // Timestamp of last tap for double-tap detection
+    lastTapX: 0,          // X position of last tap
+    lastTapY: 0,          // Y position of last tap
+    longPressTimer: null, // Timer for long-press detection
+    initialPinchDistance: null, // Initial distance between two fingers
+    initialZoom: 1,       // Zoom level when pinch started
+    isPinching: false,    // Whether currently in pinch gesture
+    touchStartTime: 0,    // When touch started (for distinguishing tap vs pan)
+    touchStartX: 0,       // X position when touch started
+    touchStartY: 0,       // Y position when touch started
+    hasMoved: false,      // Whether touch has moved (to distinguish tap from pan)
+  });
+  const longPressTimerRef = useRef(null);
+
+  // Mobile detection for responsive UI
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Terrain painting state
   const [isPainting, setIsPainting] = useState(false);
+  const [deploymentZoneWarning, setDeploymentZoneWarning] = useState(null); // Warning message for missing deployment zones
 
   // Combat state - supports multiple units on each side
   const [activeCombat, setActiveCombat] = useState(null); // { attackers: [], defenders: [], combatHex, attackApproachHex }
@@ -426,6 +455,8 @@ const HexWargame = () => {
       delete newP2Zone[key];
       setPlayer2DeploymentZone(newP2Zone);
       setPlayer1DeploymentZone({ ...player1DeploymentZone, [key]: true });
+      // Clear warning if it was about P1 zone
+      if (deploymentZoneWarning) setDeploymentZoneWarning(null);
       return;
     }
     if (selectedTerrainBrush === 'deploy-p2') {
@@ -434,6 +465,8 @@ const HexWargame = () => {
       delete newP1Zone[key];
       setPlayer1DeploymentZone(newP1Zone);
       setPlayer2DeploymentZone({ ...player2DeploymentZone, [key]: true });
+      // Clear warning if it was about P2 zone
+      if (deploymentZoneWarning) setDeploymentZoneWarning(null);
       return;
     }
     if (selectedTerrainBrush === 'deploy-clear') {
@@ -1178,6 +1211,22 @@ const HexWargame = () => {
   };
 
   const proceedToUnitSetup = () => {
+    // Check if both players have at least one deployment zone hex
+    const hasPlayer1Zone = Object.keys(player1DeploymentZone).length > 0;
+    const hasPlayer2Zone = Object.keys(player2DeploymentZone).length > 0;
+    
+    if (!hasPlayer1Zone && !hasPlayer2Zone) {
+      setDeploymentZoneWarning('Please set deployment zones for both Player 1 and Player 2 before continuing.');
+      return;
+    } else if (!hasPlayer1Zone) {
+      setDeploymentZoneWarning('Please set a deployment zone for Player 1 before continuing.');
+      return;
+    } else if (!hasPlayer2Zone) {
+      setDeploymentZoneWarning('Please set a deployment zone for Player 2 before continuing.');
+      return;
+    }
+    
+    setDeploymentZoneWarning(null);
     setGamePhase('player1-units');
   };
 
@@ -1844,7 +1893,7 @@ const HexWargame = () => {
     setUserPathTrail([]); // Clear trail when canceling move
   };
 
-  // Check if a retreat hex is in the valid 180° arc based on attack direction
+  // Check if a retreat hex is in the valid 180Â° arc based on attack direction
   // For attacker: retreat toward where they came from (back toward attackApproachHex)
   // For defender: retreat away from where the attack came from (opposite of attackApproachHex)
   const isValidRetreatDirection = (combatHex, retreatHex, attackApproachHex, isAttackerRetreating) => {
@@ -1917,7 +1966,7 @@ const HexWargame = () => {
       const { q, r } = neighbor;
       const hexKey = `${q}-${r}`;
       
-      // Check retreat direction (180° arc restriction)
+      // Check retreat direction (180Â° arc restriction)
       if (combatHex && attackApproachHex) {
         if (!isValidRetreatDirection(combatHex, { q, r }, attackApproachHex, isAttackerRetreating)) {
           continue;
@@ -2242,6 +2291,195 @@ const HexWargame = () => {
       setStackSelectionHex(null);
     }
   };
+
+  // Calculate distance between two touch points
+  const getTouchDistance = (touch1, touch2) => {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // Handle deselection (shared between right-click and long-press)
+  const handleDeselect = () => {
+    if (selectedUnit || selectedStack || stackSelectionHex) {
+      setSelectedUnit(null);
+      setSelectedStack(null);
+      setUserPathTrail([]);
+      setPendingMove(null);
+      setHoveredHex(null);
+      setStackSelectionHex(null);
+      return true;
+    }
+    return false;
+  };
+
+  // Handle double-tap zoom
+  const handleDoubleTapZoom = (x, y) => {
+    // Toggle between 1x and 1.5x zoom, or if already zoomed, go back to 1x
+    if (zoomLevel >= 1.4) {
+      setZoomLevel(1);
+    } else {
+      setZoomLevel(1.5);
+    }
+  };
+
+  // Enhanced touch start handler for multi-touch gestures
+  const handleTouchStart = (e) => {
+    const now = Date.now();
+    const touches = e.touches;
+    
+    // Clear any existing long press timer
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    
+    if (touches.length === 2) {
+      // Two finger touch - start pinch zoom
+      e.preventDefault();
+      const distance = getTouchDistance(touches[0], touches[1]);
+      setTouchState(prev => ({
+        ...prev,
+        isPinching: true,
+        initialPinchDistance: distance,
+        initialZoom: zoomLevel,
+        hasMoved: false,
+      }));
+      setIsPanning(false);
+    } else if (touches.length === 1) {
+      const touch = touches[0];
+      
+      // Check for double tap (within 300ms and 50px of last tap)
+      const timeSinceLastTap = now - touchState.lastTap;
+      const distFromLastTap = Math.sqrt(
+        Math.pow(touch.clientX - touchState.lastTapX, 2) + 
+        Math.pow(touch.clientY - touchState.lastTapY, 2)
+      );
+      
+      if (timeSinceLastTap < 300 && distFromLastTap < 50) {
+        // Double tap detected
+        e.preventDefault();
+        handleDoubleTapZoom(touch.clientX, touch.clientY);
+        setTouchState(prev => ({
+          ...prev,
+          lastTap: 0, // Reset to prevent triple-tap
+          hasMoved: false,
+        }));
+        return;
+      }
+      
+      // Single finger touch - start pan and set up long press timer
+      setTouchState(prev => ({
+        ...prev,
+        lastTap: now,
+        lastTapX: touch.clientX,
+        lastTapY: touch.clientY,
+        touchStartTime: now,
+        touchStartX: touch.clientX,
+        touchStartY: touch.clientY,
+        hasMoved: false,
+        isPinching: false,
+      }));
+      
+      // Set up long press timer (500ms)
+      longPressTimerRef.current = setTimeout(() => {
+        // Only trigger if we haven't moved much
+        if (!touchState.hasMoved) {
+          // Vibrate if supported (haptic feedback)
+          if (navigator.vibrate) {
+            navigator.vibrate(50);
+          }
+          handleDeselect();
+        }
+        longPressTimerRef.current = null;
+      }, 500);
+      
+      // Start panning
+      setIsPanning(true);
+      setPanStart({
+        x: touch.clientX + scrollPos.x,
+        y: touch.clientY + scrollPos.y
+      });
+    }
+  };
+
+  // Enhanced touch move handler for pinch zoom
+  const handleTouchMove = (e) => {
+    const touches = e.touches;
+    
+    if (touches.length === 2 && touchState.isPinching) {
+      // Pinch zoom
+      e.preventDefault();
+      const distance = getTouchDistance(touches[0], touches[1]);
+      const scale = distance / touchState.initialPinchDistance;
+      const newZoom = Math.min(2.0, Math.max(0.25, touchState.initialZoom * scale));
+      setZoomLevel(newZoom);
+      
+      // Cancel long press if active
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    } else if (touches.length === 1 && isPanning && !touchState.isPinching) {
+      // Single finger pan
+      const touch = touches[0];
+      const deltaX = panStart.x - touch.clientX;
+      const deltaY = panStart.y - touch.clientY;
+      
+      // Check if moved enough to cancel long press (10px threshold)
+      const moveDistance = Math.sqrt(
+        Math.pow(touch.clientX - touchState.touchStartX, 2) +
+        Math.pow(touch.clientY - touchState.touchStartY, 2)
+      );
+      
+      if (moveDistance > 10) {
+        setTouchState(prev => ({ ...prev, hasMoved: true }));
+        // Cancel long press timer
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+      
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollLeft = deltaX;
+        scrollContainerRef.current.scrollTop = deltaY;
+        setScrollPos({ x: deltaX, y: deltaY });
+      }
+    }
+  };
+
+  // Enhanced touch end handler
+  const handleTouchEnd = (e) => {
+    // Clear long press timer
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    
+    // Reset pinch state if no more touches or only one touch
+    if (e.touches.length < 2) {
+      setTouchState(prev => ({
+        ...prev,
+        isPinching: false,
+        initialPinchDistance: null,
+      }));
+    }
+    
+    // Reset panning if no touches
+    if (e.touches.length === 0) {
+      setIsPanning(false);
+    }
+  };
+
+  // Clean up long press timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (isPanning) {
@@ -3239,6 +3477,25 @@ const HexWargame = () => {
             </svg>
           </div>
 
+          {/* Deployment Zone Warning */}
+          {deploymentZoneWarning && (
+            <div className="mb-4 p-4 bg-amber-900/50 border-2 border-amber-500 rounded-lg flex items-center gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div className="flex-1">
+                <p className="text-amber-200 font-semibold">{deploymentZoneWarning}</p>
+                <p className="text-amber-200/70 text-sm mt-1">
+                  Use the "Player 1 Zone" and "Player 2 Zone" brushes above to mark deployment areas.
+                </p>
+              </div>
+              <button
+                onClick={() => setDeploymentZoneWarning(null)}
+                className="text-amber-400 hover:text-amber-300 text-xl px-2"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-4 mt-4">
             <button
               onClick={() => setGamePhase('setup')}
@@ -3259,6 +3516,7 @@ const HexWargame = () => {
                 setPlayer1DeploymentZone({});
                 setPlayer2DeploymentZone({});
                 setSelectedTerrainBrush(terrainTypes.length > 0 ? terrainTypes[0].id : null);
+                setDeploymentZoneWarning(null); // Clear warning when resetting
               }}
               className="flex-1 bg-red-600 hover:bg-red-700 text-lg font-semibold py-4 rounded-lg"
             >
@@ -3978,7 +4236,7 @@ const HexWargame = () => {
         {/* Map container - takes remaining height */}
         <div 
           ref={scrollContainerRef}
-          className="bg-slate-800 p-2 md:p-4 rounded-lg overflow-auto flex-1 touch-pan-x touch-pan-y" 
+          className="bg-slate-800 p-2 md:p-4 rounded-lg overflow-auto flex-1 touch-none" 
           style={{ 
             minHeight: '200px',
             cursor: isPanning ? 'grabbing' : 'grab'
@@ -3986,25 +4244,9 @@ const HexWargame = () => {
           onMouseDown={handleMouseDown}
           onWheel={handleWheel}
           onContextMenu={handleContextMenu}
-          onTouchStart={(e) => {
-            if (e.touches.length === 1) {
-              setIsPanning(true);
-              setPanStart({
-                x: e.touches[0].clientX + scrollPos.x,
-                y: e.touches[0].clientY + scrollPos.y
-              });
-            }
-          }}
-          onTouchMove={(e) => {
-            if (isPanning && e.touches.length === 1 && scrollContainerRef.current) {
-              const deltaX = panStart.x - e.touches[0].clientX;
-              const deltaY = panStart.y - e.touches[0].clientY;
-              scrollContainerRef.current.scrollLeft = deltaX;
-              scrollContainerRef.current.scrollTop = deltaY;
-              setScrollPos({ x: deltaX, y: deltaY });
-            }
-          }}
-          onTouchEnd={() => setIsPanning(false)}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
           <svg 
             width={(mapWidth * HEX_SIZE * Math.sqrt(3) + 150) * zoomLevel} 
@@ -4273,13 +4515,21 @@ const HexWargame = () => {
                       key={unit.id}
                       style={{ cursor: canSelect ? 'pointer' : 'default' }}
                       onClick={() => {
-                        if (canSelect && !isPanning) {
+                        if (canSelect && !isPanning && !touchState.hasMoved) {
                           setSelectedUnit(isSelected ? null : unit);
                           setStackSelectionHex(null);
                           setUserPathTrail([]); // Clear trail when selecting/deselecting
                         }
                       }}
                     >
+                      {/* Invisible larger touch target for mobile */}
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={25}
+                        fill="transparent"
+                        style={{ cursor: canSelect ? 'pointer' : 'default' }}
+                      />
                       <circle
                         cx={x}
                         cy={y}
@@ -4296,10 +4546,11 @@ const HexWargame = () => {
                         fontSize="10"
                         fontWeight="bold"
                         fill="white"
+                        style={{ pointerEvents: 'none' }}
                       >
                         {unit.name}
                       </text>
-                      <g>
+                      <g style={{ pointerEvents: 'none' }}>
                         {renderUnitShape(unitType.shape, x, y, 8)}
                       </g>
                       <text
@@ -4309,6 +4560,7 @@ const HexWargame = () => {
                         fontSize="10"
                         fontWeight="bold"
                         fill="white"
+                        style={{ pointerEvents: 'none' }}
                       >
                         {unit.strength}
                       </text>
@@ -4325,9 +4577,23 @@ const HexWargame = () => {
                 
                 return (
                   <g key={hexKey}>
+                    {/* Invisible larger touch target for mobile */}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={25}
+                      fill="transparent"
+                      style={{ cursor: hasSelectableUnits ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        if (hasSelectableUnits && !isPanning && !touchState.hasMoved) {
+                          setStackSelectionHex(isStackBubbleOpen ? null : { q, r });
+                          setSelectedUnit(null);
+                        }
+                      }}
+                    />
                     {/* Stack indicator shadows */}
-                    <circle cx={x + 4} cy={y + 4} r={15} fill="#000" opacity={0.3} />
-                    <circle cx={x + 2} cy={y + 2} r={15} fill="#000" opacity={0.2} />
+                    <circle cx={x + 4} cy={y + 4} r={15} fill="#000" opacity={0.3} style={{ pointerEvents: 'none' }} />
+                    <circle cx={x + 2} cy={y + 2} r={15} fill="#000" opacity={0.2} style={{ pointerEvents: 'none' }} />
                     
                     {/* Top unit */}
                     <circle
@@ -4337,20 +4603,14 @@ const HexWargame = () => {
                       fill={topUnitColor}
                       stroke={isSelected ? '#fbbf24' : '#fff'}
                       strokeWidth={isSelected ? 3 : 2}
-                      style={{ cursor: hasSelectableUnits ? 'pointer' : 'default' }}
-                      onClick={() => {
-                        if (hasSelectableUnits && !isPanning) {
-                          setStackSelectionHex(isStackBubbleOpen ? null : { q, r });
-                          setSelectedUnit(null);
-                        }
-                      }}
+                      style={{ pointerEvents: 'none' }}
                     />
-                    <g>
+                    <g style={{ pointerEvents: 'none' }}>
                       {renderUnitShape(topUnitType.shape, x, y, 8)}
                     </g>
                     
                     {/* Stack count badge */}
-                    <circle cx={x + 12} cy={y - 12} r={10} fill="#1e293b" stroke="#fff" strokeWidth={1} />
+                    <circle cx={x + 12} cy={y - 12} r={10} fill="#1e293b" stroke="#fff" strokeWidth={1} style={{ pointerEvents: 'none' }} />
                     <text
                       x={x + 12}
                       y={y - 12}
@@ -4359,6 +4619,7 @@ const HexWargame = () => {
                       fontSize="10"
                       fontWeight="bold"
                       fill="white"
+                      style={{ pointerEvents: 'none' }}
                     >
                       {visibleUnits.length}
                     </text>
@@ -4367,8 +4628,8 @@ const HexWargame = () => {
               });
             })()}
             
-            {/* Stack selection bubble */}
-            {stackSelectionHex && (() => {
+            {/* Stack selection bubble - desktop only (mobile uses bottom sheet) */}
+            {stackSelectionHex && !isMobile && (() => {
               const { x, y } = hexToPixel(stackSelectionHex.q, stackSelectionHex.r);
               const unitsAtHex = units.filter(u => 
                 u.q === stackSelectionHex.q && 
@@ -4533,15 +4794,194 @@ const HexWargame = () => {
           </svg>
         </div>
 
-        {/* Help text - hidden on mobile */}
+        {/* Help text - different for desktop vs mobile */}
         <div className="hidden md:block mt-2 md:mt-4 text-xs md:text-sm text-slate-400">
           <p>Click and drag to pan. Scroll wheel to zoom. Right-click to deselect. Click units to select, hover to see path, click to confirm.</p>
         </div>
+        
+        {/* Mobile Floating Action Bar - shows contextual actions */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40">
+          {/* Quick help text */}
+          {!selectedUnit && !selectedStack && !stackSelectionHex && !pendingMove && (
+            <div className="bg-slate-800/90 backdrop-blur-sm px-4 py-2 text-xs text-slate-400 text-center border-t border-slate-700">
+              Drag to pan • Pinch to zoom • Double-tap to zoom • Long-press to deselect
+            </div>
+          )}
+          
+          {/* Selection info bar */}
+          {(selectedUnit || selectedStack) && !pendingMove && (
+            <div className="bg-slate-800/95 backdrop-blur-sm border-t border-slate-700 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div 
+                    className="w-10 h-10 rounded-full border-2 border-white flex items-center justify-center"
+                    style={{ backgroundColor: (selectedUnit?.player || selectedStack?.[0]?.player) === 1 ? player1Color : player2Color }}
+                  >
+                    {selectedUnit ? (
+                      <svg width="20" height="20" viewBox="0 0 20 20">
+                        {renderUnitShape(getUnitType(selectedUnit.typeId)?.shape, 10, 10, 7)}
+                      </svg>
+                    ) : (
+                      <span className="text-white font-bold text-sm">{selectedStack?.length}</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm">
+                      {selectedUnit ? selectedUnit.name : `${selectedStack?.length} Units Selected`}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {selectedUnit 
+                        ? `Move: ${getUnitType(selectedUnit.typeId)?.move} • Str: ${selectedUnit.strength}`
+                        : `Tap a blue hex to move`
+                      }
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedUnit(null);
+                    setSelectedStack(null);
+                    setUserPathTrail([]);
+                    setHoveredHex(null);
+                  }}
+                  className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile Stack Selection Bottom Sheet */}
+        {stackSelectionHex && (() => {
+          const unitsAtHex = units.filter(u => 
+            u.q === stackSelectionHex.q && 
+            u.r === stackSelectionHex.r &&
+            (u.player === viewingPlayer || isHexVisible(u.q, u.r))
+          );
+          
+          const selectableUnits = unitsAtHex.filter(u => 
+            u.player === currentPlayer && !movedUnits.has(u.id)
+          );
+          const canMoveAll = isMyTurn && selectableUnits.length > 1;
+          
+          const minStackMove = selectableUnits.length > 0 ? Math.min(...selectableUnits.map(u => {
+            const unitType = getUnitType(u.typeId);
+            return unitType?.move || 0;
+          })) : 0;
+          
+          return (
+            <div className="md:hidden fixed inset-0 z-50" onClick={() => setStackSelectionHex(null)}>
+              {/* Backdrop */}
+              <div className="absolute inset-0 bg-black/50" />
+              
+              {/* Bottom Sheet */}
+              <div 
+                className="absolute bottom-0 left-0 right-0 bg-slate-800 rounded-t-2xl border-t-2 border-amber-500 max-h-[70vh] overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Handle */}
+                <div className="flex justify-center py-2">
+                  <div className="w-12 h-1 bg-slate-600 rounded-full" />
+                </div>
+                
+                {/* Header */}
+                <div className="px-4 pb-3 border-b border-slate-700">
+                  <h3 className="text-lg font-bold text-amber-400">
+                    Select Unit at ({stackSelectionHex.q}, {stackSelectionHex.r})
+                  </h3>
+                  <p className="text-sm text-slate-400">{unitsAtHex.length} units stacked here</p>
+                </div>
+                
+                {/* Move All Button */}
+                {canMoveAll && (
+                  <div className="p-3 border-b border-slate-700">
+                    <button
+                      onClick={() => {
+                        setSelectedStack(selectableUnits);
+                        setSelectedUnit(null);
+                        setStackSelectionHex(null);
+                      }}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 py-3 rounded-xl font-semibold flex items-center justify-center gap-2"
+                    >
+                      <span>⬆</span>
+                      Move All {selectableUnits.length} Units
+                      <span className="text-emerald-200 text-sm">(Move: {minStackMove})</span>
+                    </button>
+                  </div>
+                )}
+                
+                {/* Unit List */}
+                <div className="overflow-y-auto max-h-[50vh] p-3 space-y-2">
+                  {unitsAtHex.map((unit) => {
+                    const unitType = getUnitType(unit.typeId);
+                    const unitColor = unit.player === 1 ? player1Color : player2Color;
+                    const hasMoved = movedUnits.has(unit.id);
+                    const canSelect = isMyTurn && unit.player === currentPlayer && !hasMoved;
+                    
+                    return (
+                      <button
+                        key={unit.id}
+                        onClick={() => {
+                          if (canSelect) {
+                            setSelectedUnit(unit);
+                            setSelectedStack(null);
+                            setStackSelectionHex(null);
+                          }
+                        }}
+                        disabled={!canSelect}
+                        className={`w-full p-3 rounded-xl flex items-center gap-3 transition-colors ${
+                          canSelect 
+                            ? 'bg-slate-700 hover:bg-slate-600 active:bg-slate-500' 
+                            : 'bg-slate-800 opacity-50'
+                        }`}
+                      >
+                        <div 
+                          className="w-12 h-12 rounded-full border-2 border-white flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: unitColor }}
+                        >
+                          <svg width="24" height="24" viewBox="0 0 20 20">
+                            {renderUnitShape(unitType?.shape, 10, 10, 7)}
+                          </svg>
+                        </div>
+                        <div className="flex-1 text-left">
+                          <p className="font-semibold">{unit.name}</p>
+                          <p className="text-sm text-slate-400">
+                            {unitType?.name} • Move: {unitType?.move} • Str: {unit.strength}
+                          </p>
+                        </div>
+                        {hasMoved ? (
+                          <span className="text-slate-500 text-sm">Moved</span>
+                        ) : canSelect ? (
+                          <span className="text-amber-400 text-sm">Select →</span>
+                        ) : (
+                          <span className="text-slate-500 text-sm">Enemy</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                {/* Close button */}
+                <div className="p-3 border-t border-slate-700">
+                  <button
+                    onClick={() => setStackSelectionHex(null)}
+                    className="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-medium"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {pendingMove && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-slate-800 p-6 rounded-lg shadow-xl border-2 border-slate-600">
-              <h3 className="text-xl font-bold mb-4">
+          <div className={`fixed inset-0 bg-black bg-opacity-50 z-50 ${isMobile ? 'flex items-end' : 'flex items-center justify-center'}`}>
+            <div className={`bg-slate-800 shadow-xl ${isMobile ? 'w-full rounded-t-2xl border-t-2 border-slate-600 p-4 pb-6' : 'rounded-lg border-2 border-slate-600 p-6 mx-4'}`}>
+              {isMobile && <div className="flex justify-center mb-3"><div className="w-12 h-1 bg-slate-600 rounded-full" /></div>}
+              <h3 className={`font-bold mb-4 ${isMobile ? 'text-lg' : 'text-xl'}`}>
                 {pendingMove.isAttack ? '⚔️ Confirm Attack' : (pendingMove.isStackMove ? '📦 Confirm Stack Move' : 'Confirm Move')}
               </h3>
               {pendingMove.isAttack ? (
@@ -4580,19 +5020,19 @@ const HexWargame = () => {
                   </p>
                 </>
               )}
-              <div className="flex gap-4">
+              <div className={`flex ${isMobile ? 'gap-3' : 'gap-4'}`}>
                 <button
                   onClick={cancelMove}
-                  className="flex-1 bg-red-600 hover:bg-red-700 px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2"
+                  className={`flex-1 bg-red-600 hover:bg-red-700 active:bg-red-800 font-semibold flex items-center justify-center gap-2 ${isMobile ? 'py-4 rounded-xl' : 'px-6 py-3 rounded-lg'}`}
                 >
-                  <span className="text-2xl">✕</span>
+                  <span className={isMobile ? 'text-xl' : 'text-2xl'}>✕</span>
                   Cancel
                 </button>
                 <button
                   onClick={confirmMove}
-                  className={`flex-1 ${pendingMove.isAttack ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'} px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2`}
+                  className={`flex-1 ${pendingMove.isAttack ? 'bg-orange-600 hover:bg-orange-700 active:bg-orange-800' : 'bg-green-600 hover:bg-green-700 active:bg-green-800'} font-semibold flex items-center justify-center gap-2 ${isMobile ? 'py-4 rounded-xl' : 'px-6 py-3 rounded-lg'}`}
                 >
-                  <span className="text-2xl">{pendingMove.isAttack ? '⚔️' : '✓'}</span>
+                  <span className={isMobile ? 'text-xl' : 'text-2xl'}>{pendingMove.isAttack ? '⚔️' : '✓'}</span>
                   {pendingMove.isAttack ? 'Attack' : 'Confirm'}
                 </button>
               </div>
@@ -4602,9 +5042,10 @@ const HexWargame = () => {
 
         {/* Combat Modal - Updated for multi-unit combat with SOG support */}
         {combatPhase === 'combat' && activeCombat && (
-          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-            <div className="bg-slate-800 p-6 rounded-lg shadow-xl border-2 border-orange-500 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-2xl font-bold mb-6 text-center text-orange-400">⚔️ Combat ⚔️</h3>
+          <div className={`fixed inset-0 bg-black bg-opacity-70 z-50 ${isMobile ? 'flex items-end' : 'flex items-center justify-center'}`}>
+            <div className={`bg-slate-800 shadow-xl border-2 border-orange-500 overflow-y-auto ${isMobile ? 'w-full rounded-t-2xl max-h-[85vh] p-4' : 'rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] p-6'}`}>
+              {isMobile && <div className="flex justify-center mb-3"><div className="w-12 h-1 bg-slate-600 rounded-full" /></div>}
+              <h3 className={`font-bold text-center text-orange-400 ${isMobile ? 'text-xl mb-4' : 'text-2xl mb-6'}`}>⚔️ Combat ⚔️</h3>
               
               {(() => {
                 const attackerColor = activeCombat.attackers[0]?.player === 1 ? player1Color : player2Color;
@@ -4768,7 +5209,7 @@ const HexWargame = () => {
                 Object.keys(activeCombat.defendersByDistance || {}).length > 0) && (
                 <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-3 mb-4">
                   <p className="text-slate-300 text-sm text-center">
-                    ☐ Check nearby units to have them <strong>move to the sound of the guns</strong> and join combat.
+                    ☑ Check nearby units to have them <strong>move to the sound of the guns</strong> and join combat.
                     <br />
                     <span className="text-slate-400 text-xs">Participating units will move to the combat hex and be subject to retreat if they lose.</span>
                   </p>
@@ -4797,7 +5238,7 @@ const HexWargame = () => {
         {combatPhase === 'resolve' && activeCombat && (
           <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
             <div className="bg-slate-800 p-6 rounded-lg shadow-xl border-2 border-orange-500 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-2xl font-bold mb-6 text-center text-orange-400">Combat Resolution</h3>
+              <h3 className={`font-bold text-center text-orange-400 ${isMobile ? 'text-xl mb-4' : 'text-2xl mb-6'}`}>⚔️ Combat ⚔️</h3>
               
               {(() => {
                 const attackerColor = activeCombat.attackers[0]?.player === 1 ? player1Color : player2Color;
@@ -4947,17 +5388,22 @@ const HexWargame = () => {
 
         {/* Retreat Selection Panel - Shows all retreating units */}
         {combatPhase === 'retreat' && retreatingUnits.length > 0 && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
-            <div className="bg-slate-800 p-4 rounded-lg shadow-xl border-2 border-amber-500 max-w-lg w-full">
-              <h3 className="text-xl font-bold mb-3 text-center text-amber-400">
+          <div className={`fixed z-50 ${isMobile ? 'inset-x-0 bottom-0' : 'top-4 left-1/2 transform -translate-x-1/2'}`}>
+            <div className={`bg-slate-800 shadow-xl border-2 border-amber-500 ${
+              isMobile 
+                ? 'rounded-t-2xl p-4 pb-6 max-h-[60vh]' 
+                : 'rounded-lg p-4 max-w-lg w-full'
+            }`}>
+              {isMobile && <div className="flex justify-center mb-3"><div className="w-12 h-1 bg-slate-600 rounded-full" /></div>}
+              <h3 className={`font-bold mb-3 text-center text-amber-400 ${isMobile ? 'text-lg' : 'text-xl'}`}>
                 Retreat Required ({retreatingUnits.length} unit{retreatingUnits.length > 1 ? 's' : ''})
               </h3>
               
               <p className="text-sm text-slate-400 text-center mb-3">
-                Select a unit, then click a yellow hex on the map to retreat it.
+                {isMobile ? 'Tap a unit, then tap a yellow hex' : 'Select a unit, then click a yellow hex on the map to retreat it.'}
               </p>
               
-              <div className="space-y-2 max-h-60 overflow-y-auto mb-3">
+              <div className={`space-y-2 overflow-y-auto mb-3 ${isMobile ? 'max-h-[35vh]' : 'max-h-60'}`}>
                 {retreatingUnits.map(unit => {
                   const unitType = getUnitType(unit.typeId);
                   const unitColor = unit.player === 1 ? player1Color : player2Color;
@@ -4967,20 +5413,20 @@ const HexWargame = () => {
                   return (
                     <div 
                       key={unit.id}
-                      className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors ${
+                      className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
                         isSelected 
                           ? 'bg-amber-600 ring-2 ring-amber-400' 
                           : canRetreat 
-                            ? 'bg-slate-700 hover:bg-slate-600' 
+                            ? 'bg-slate-700 hover:bg-slate-600 active:bg-slate-500' 
                             : 'bg-slate-700 opacity-60'
                       }`}
                       onClick={() => canRetreat && selectUnitForRetreat(unit)}
                     >
                       <div 
-                        className="w-10 h-10 rounded-full border-2 border-white flex items-center justify-center flex-shrink-0"
+                        className="w-12 h-12 rounded-full border-2 border-white flex items-center justify-center flex-shrink-0"
                         style={{ backgroundColor: unitColor }}
                       >
-                        <svg width="20" height="20" viewBox="0 0 20 20">
+                        <svg width="24" height="24" viewBox="0 0 20 20">
                           {renderUnitShape(unitType?.shape, 10, 10, 7)}
                         </svg>
                       </div>
@@ -5001,7 +5447,7 @@ const HexWargame = () => {
                               e.stopPropagation();
                               eliminateRetreatUnit(unit);
                             }}
-                            className="text-sm bg-red-600 hover:bg-red-700 px-2 py-1 rounded"
+                            className={`bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg ${isMobile ? 'px-4 py-2 text-sm' : 'px-2 py-1 text-sm'}`}
                           >
                             Eliminate
                           </button>
@@ -5014,7 +5460,7 @@ const HexWargame = () => {
               
               {selectedRetreatUnit && validRetreatHexes.length > 0 && (
                 <p className="text-sm text-amber-300 text-center">
-                  Click a yellow highlighted hex on the map to retreat {selectedRetreatUnit.name}
+                  {isMobile ? `Tap yellow hex to retreat ${selectedRetreatUnit.name}` : `Click a yellow highlighted hex on the map to retreat ${selectedRetreatUnit.name}`}
                 </p>
               )}
             </div>
@@ -5022,31 +5468,41 @@ const HexWargame = () => {
         )}
 
         {turnTransitionPending && (
-          <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
-            <div className="bg-slate-800 p-8 rounded-lg shadow-xl border-2 border-amber-500 max-w-md text-center">
+          <div className={`fixed inset-0 bg-black z-50 ${isMobile ? 'flex items-end' : 'flex items-center justify-center'}`}>
+            <div className={`bg-slate-800 shadow-xl border-2 border-amber-500 text-center ${
+              isMobile 
+                ? 'w-full rounded-t-2xl p-6 pb-8' 
+                : 'rounded-lg p-8 max-w-md'
+            }`}>
+              {isMobile && <div className="flex justify-center mb-4"><div className="w-12 h-1 bg-slate-600 rounded-full" /></div>}
               <div className="mb-6">
                 <div 
-                  className="w-16 h-16 rounded-full border-4 border-white mx-auto mb-4"
+                  className={`rounded-full border-4 border-white mx-auto mb-4 ${isMobile ? 'w-14 h-14' : 'w-16 h-16'}`}
                   style={{ backgroundColor: nextPlayerNum === 1 ? player1Color : player2Color }}
                 />
-                <h3 className="text-2xl font-bold mb-2">Turn Complete!</h3>
-                <p className="text-xl text-amber-400 font-semibold">
+                <h3 className={`font-bold mb-2 ${isMobile ? 'text-xl' : 'text-2xl'}`}>Turn Complete!</h3>
+                <p className={`text-amber-400 font-semibold ${isMobile ? 'text-lg' : 'text-xl'}`}>
                   Player {nextPlayerNum}'s Turn
                 </p>
               </div>
               
-              <div className="bg-amber-900/30 border border-amber-500 rounded-lg p-4 mb-6">
+              <div className="bg-amber-900/30 border border-amber-500 rounded-xl p-4 mb-6">
                 <p className="text-amber-200">
                   <strong>Please pass the device to Player {nextPlayerNum}.</strong>
                 </p>
                 <p className="text-amber-200/70 text-sm mt-2">
-                  Player {nextPlayerNum} should press Continue when ready. This will reveal their unit positions and hide the previous player's hidden units.
+                  {isMobile 
+                    ? `Player ${nextPlayerNum} taps Continue when ready.`
+                    : `Player ${nextPlayerNum} should press Continue when ready. This will reveal their unit positions and hide the previous player's hidden units.`
+                  }
                 </p>
               </div>
               
               <button
                 onClick={continueToNextPlayer}
-                className="w-full bg-green-600 hover:bg-green-700 px-6 py-4 rounded-lg font-semibold text-lg"
+                className={`w-full bg-green-600 hover:bg-green-700 active:bg-green-800 font-semibold ${
+                  isMobile ? 'py-4 rounded-xl text-lg' : 'px-6 py-4 rounded-lg text-lg'
+                }`}
               >
                 Continue as Player {nextPlayerNum}
               </button>
@@ -5056,9 +5512,10 @@ const HexWargame = () => {
 
         {/* Move Interrupted Modal */}
         {moveInterrupted && (
-          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-            <div className="bg-slate-800 p-6 rounded-lg shadow-xl border-2 border-yellow-500 max-w-md w-full mx-4">
-              <h3 className="text-2xl font-bold mb-4 text-center text-yellow-400">⚠️ Move Interrupted!</h3>
+          <div className={`fixed inset-0 bg-black bg-opacity-70 z-50 ${isMobile ? 'flex items-end' : 'flex items-center justify-center'}`}>
+            <div className={`bg-slate-800 shadow-xl border-2 border-yellow-500 ${isMobile ? 'w-full rounded-t-2xl p-4 pb-6' : 'rounded-lg p-6 max-w-md w-full mx-4'}`}>
+              {isMobile && <div className="flex justify-center mb-3"><div className="w-12 h-1 bg-slate-600 rounded-full" /></div>}
+              <h3 className={`font-bold mb-4 text-center text-yellow-400 ${isMobile ? 'text-xl' : 'text-2xl'}`}>⚠️ Move Interrupted!</h3>
               
               <div className="bg-slate-700 p-4 rounded-lg mb-4">
                 <div className="flex items-center justify-center mb-3">
@@ -5091,7 +5548,7 @@ const HexWargame = () => {
               
               <button
                 onClick={acknowledgeMoveInterruption}
-                className="w-full bg-yellow-600 hover:bg-yellow-700 px-6 py-3 rounded-lg font-semibold"
+                className={`w-full bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 font-semibold ${isMobile ? 'py-4 rounded-xl' : 'px-6 py-3 rounded-lg'}`}
               >
                 Acknowledge
               </button>
